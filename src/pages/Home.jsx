@@ -25,8 +25,13 @@ export default function Home() {
 
   const addToCart = async (productId) => {
     if (!token) return toast.error('Please sign in to add to cart')
-    await api.post('/cart/add', { productId, qty: 1 }, { headers: { Authorization: `Bearer ${token}` } })
-    toast.success('Added to cart')
+    try {
+      await api.post('/cart/add', { productId, qty: 1 }, { headers: { Authorization: `Bearer ${token}` } })
+      toast.success('Added to cart')
+    } catch (err) {
+      console.error('Add to cart error:', err)
+      toast.error(err?.response?.data?.message || 'Failed to add to cart')
+    }
   }
 
   if (loading) return <p className="text-gray-600">Loading...</p>

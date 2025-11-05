@@ -15,6 +15,7 @@ export default function Header() {
         <nav className="ml-6 flex items-center gap-4 text-sm">
           <Link to="/" className="hover:text-emerald-700">Home</Link>
           <Link to="/cart" className="hover:text-emerald-700">Cart</Link>
+          {user && <Link to="/orders" className="hover:text-emerald-700">Orders</Link>}
         </nav>
         <div className="ml-auto flex items-center gap-3">
           {user ? (

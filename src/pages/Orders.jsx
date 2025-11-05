@@ -81,6 +81,9 @@ export default function Orders() {
                 </div>
                 <div className="text-right">
                   {getStatusBadge(order.paymentStatus)}
+                  <div className="text-xs text-gray-500 mt-1">
+                    {order.paymentMethod === 'cod' ? '💵 Cash on Delivery' : '💳 Online Payment'}
+                  </div>
                   <div className="font-semibold text-lg mt-1">{formatINR(order.totalAmount)}</div>
                 </div>
               </div>

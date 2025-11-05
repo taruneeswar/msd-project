@@ -4,6 +4,7 @@ import api from '../utils/api'
 import { useAuth } from '../state/AuthContext'
 import { formatINR } from '../utils/format'
 import toast from 'react-hot-toast'
+import UpiQrPayment from '../components/UpiQrPayment'
 
 export default function Checkout() {
   const { token, user } = useAuth()
@@ -11,6 +12,9 @@ export default function Checkout() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState('cod') // 'online' or 'cod'
+  const [showUpiQr, setShowUpiQr] = useState(false)
+  const [currentOrder, setCurrentOrder] = useState(null)
   const [deliveryAddress, setDeliveryAddress] = useState(user?.address || '')
   const [deliveryPhone, setDeliveryPhone] = useState(user?.phone || '')
 
@@ -41,7 +45,7 @@ export default function Checkout() {
     })
   }
 
-  const handlePayment = async () => {
+  const handleCODOrder = async () => {
     if (!deliveryAddress || !deliveryPhone) {
       toast.error('Please enter delivery address and phone number')
       return
@@ -55,38 +59,57 @@ export default function Checkout() {
     setProcessing(true)
 
     try {
+      const { data } = await api.post(
+        '/payment/create-cod-order',
+        { deliveryAddress, deliveryPhone },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+
+      toast.success('Order placed successfully! Pay on delivery.')
+      navigate('/orders')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to place order')
+      console.error(err)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handlePayment = async () => {
+    if (!deliveryAddress || !deliveryPhone) {
+      toast.error('Please enter delivery address and phone number')
+      return
+    }
+
+    if (items.length === 0) {
+      toast.error('Your cart is empty')
+      return
+    }
+
+    // Handle COD
+    if (paymentMethod === 'cod') {
+      return handleCODOrder()
+    }
+
+    // Handle Online Payment
+    setProcessing(true)
+
+    try {
       // Check if Razorpay keys are configured
       const razorpayKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID
       const isTestMode = !razorpayKeyId || razorpayKeyId === 'your_razorpay_key_id_here'
 
       if (isTestMode) {
-        // TEST MODE: Simulate payment without Razorpay
-        toast.loading('Processing test payment...')
-        
-        // Create order
+        // TEST MODE: Show UPI QR Code
         const { data } = await api.post(
           '/payment/create-order',
           { amount: total, deliveryAddress, deliveryPhone },
           { headers: { Authorization: `Bearer ${token}` } }
         )
-
-        // Simulate payment delay
-        await new Promise(resolve => setTimeout(resolve, 2000))
-
-        // Verify payment with test data
-        await api.post(
-          '/payment/verify-payment',
-          {
-            razorpay_order_id: data.orderId,
-            razorpay_payment_id: 'test_payment_' + Date.now(),
-            razorpay_signature: 'test_signature',
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
-
-        toast.dismiss()
-        toast.success('Test payment successful! (Configure Razorpay keys for real payments)')
-        navigate('/orders')
+        
+        setCurrentOrder(data)
+        setShowUpiQr(true)
+        setProcessing(false)
         return
       }
 
@@ -105,14 +128,40 @@ export default function Checkout() {
         { headers: { Authorization: `Bearer ${token}` } }
       )
 
-      // Razorpay options
+      // Razorpay options with UPI QR
       const options = {
         key: razorpayKeyId,
         amount: data.amount,
         currency: data.currency,
         name: 'Eco Basket',
         description: 'Order Payment',
+        image: 'https://cdn-icons-png.flaticon.com/512/2331/2331966.png', // Eco/Shopping icon
         order_id: data.orderId,
+        method: {
+          upi: true,
+          card: true,
+          netbanking: true,
+          wallet: true,
+        },
+        config: {
+          display: {
+            blocks: {
+              banks: {
+                name: 'All payment methods',
+                instruments: [
+                  { method: 'upi' },
+                  { method: 'card' },
+                  { method: 'netbanking' },
+                  { method: 'wallet' },
+                ],
+              },
+            },
+            sequence: ['block.banks'],
+            preferences: {
+              show_default_blocks: true,
+            },
+          },
+        },
         handler: async (response) => {
           try {
             // Verify payment
@@ -157,6 +206,33 @@ export default function Checkout() {
     }
   }
 
+  const handleQrPaymentSuccess = async (paymentDetails) => {
+    try {
+      await api.post(
+        '/payment/verify-payment',
+        {
+          razorpay_order_id: paymentDetails.razorpay_order_id,
+          razorpay_payment_id: paymentDetails.razorpay_payment_id,
+          razorpay_signature: paymentDetails.razorpay_signature,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      
+      setShowUpiQr(false)
+      toast.success('Payment successful!')
+      navigate('/orders')
+    } catch (err) {
+      toast.error('Payment verification failed')
+      console.error(err)
+      setShowUpiQr(false)
+    }
+  }
+
+  const handleQrPaymentCancel = () => {
+    setShowUpiQr(false)
+    toast.info('Payment cancelled')
+  }
+
   if (loading) return <p className="text-gray-600">Loading...</p>
 
   if (items.length === 0) {
@@ -174,8 +250,18 @@ export default function Checkout() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold">Checkout</h1>
+    <>
+      {/* UPI QR Payment Modal */}
+      {showUpiQr && (
+        <UpiQrPayment
+          amount={total}
+          onSuccess={handleQrPaymentSuccess}
+          onCancel={handleQrPaymentCancel}
+        />
+      )}
+
+      <div className="max-w-4xl mx-auto space-y-6">
+        <h1 className="text-2xl font-bold">Checkout</h1>
 
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-4">
@@ -208,6 +294,50 @@ export default function Checkout() {
                     placeholder="Enter your phone number"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Method */}
+          <div className="card">
+            <div className="card-body">
+              <h2 className="text-xl font-semibold mb-4">Payment Method</h2>
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer hover:border-emerald-500 transition"
+                  style={{ borderColor: paymentMethod === 'cod' ? '#16a34a' : '#e5e7eb' }}
+                >
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value="cod"
+                    checked={paymentMethod === 'cod'}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="w-4 h-4 text-emerald-600"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold">Cash on Delivery (COD)</div>
+                    <div className="text-sm text-gray-600">Pay when you receive your order</div>
+                  </div>
+                  <span className="text-2xl">💵</span>
+                </label>
+                
+                <label className="flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer hover:border-emerald-500 transition"
+                  style={{ borderColor: paymentMethod === 'online' ? '#16a34a' : '#e5e7eb' }}
+                >
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value="online"
+                    checked={paymentMethod === 'online'}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="w-4 h-4 text-emerald-600"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold">Online Payment</div>
+                    <div className="text-sm text-gray-600">Pay using UPI, Card, Net Banking</div>
+                  </div>
+                  <span className="text-2xl">💳</span>
+                </label>
               </div>
             </div>
           </div>
@@ -268,7 +398,9 @@ export default function Checkout() {
                 onClick={handlePayment}
                 disabled={processing}
               >
-                {processing ? 'Processing...' : `Pay ${formatINR(total)}`}
+                {processing ? 'Processing...' : 
+                 paymentMethod === 'cod' ? `Place Order (COD) ${formatINR(total)}` : 
+                 `Pay ${formatINR(total)}`}
               </button>
               <button
                 className="btn btn-outline w-full"
@@ -281,6 +413,7 @@ export default function Checkout() {
           </div>
         </aside>
       </div>
-    </div>
+      </div>
+    </>
   )
 }

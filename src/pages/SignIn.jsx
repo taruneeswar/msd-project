@@ -13,11 +13,16 @@ export default function SignIn() {
   const onSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    console.log('🔐 Attempting sign-in with:', email)
+    console.log('📍 API Base URL:', import.meta.env.VITE_API_URL)
     try {
       const res = await api.post('/auth/signin', { email, password })
+      console.log('✅ Sign-in successful:', res.data)
       signIn(res.data.token, res.data.user)
       navigate('/')
     } catch (e) {
+      console.error('❌ Sign-in failed:', e)
+      console.error('Response:', e?.response?.data)
       setError(e?.response?.data?.message || 'Failed to sign in')
     }
   }
